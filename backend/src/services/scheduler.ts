@@ -40,8 +40,7 @@ export class SchedulerService {
 
       // Notify if available and it was previously not available (or first time)
       if (result.available && task.lastStatus !== 'AVAILABLE') {
-        const smsMessage = `[예약 알림] ${result.message}\nURL: ${task.url}`;
-        await notifierService.sendSMS(task.recipient, smsMessage);
+        await notifierService.sendSMS(task.recipient, result.message);
       }
     });
 

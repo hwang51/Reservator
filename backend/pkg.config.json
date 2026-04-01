@@ -1,0 +1,10 @@
+{
+  "assets": [
+    "dist/better_sqlite3.node",
+    "node_modules/better-sqlite3/build/better_sqlite3.node",
+    "node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+  ],
+  "scripts": [
+    "node_modules/better-sqlite3/lib/**/*.js"
+  ]
+}

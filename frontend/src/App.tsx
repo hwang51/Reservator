@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Bell, Trash2, Plus, Play, Pause, Activity } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Bell, Trash2, Plus, Activity, ChevronDown, ChevronUp } from 'lucide-react';
 import './App.css';
 
 interface Task {
@@ -15,163 +15,229 @@ interface Task {
 interface Log {
   id: number;
   taskId: number;
+  taskUrl: string | null;
   message: string;
   status: string;
-  timestamp: string;
+  timestamp: string | number;
+}
+
+function formatDateTime(ts: string | number): string {
+  const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${mm}/${dd} ${hh}:${mi}`;
+}
+
+function safeHostname(url: string | null): string {
+  if (!url) return '—';
+  try { return new URL(url).hostname; } catch { return url; }
+}
+
+function parseSlots(message: string): string[] {
+  return message.split('\n').map(l => l.trim()).filter(l => l.startsWith('✅'));
+}
+
+function LogRow({ log }: { log: Log }) {
+  const [expanded, setExpanded] = useState(false);
+  const isAvailable = log.status === 'AVAILABLE';
+  const isError = log.status === 'ERROR' || log.message.startsWith('오류:');
+  const slots = isAvailable ? parseSlots(log.message) : [];
+
+  return (
+    <div className={`log-row ${isAvailable ? 'log-available' : isError ? 'log-error' : 'log-unavailable'}`}>
+      <div className="log-row-main">
+        <span className="log-time">{formatDateTime(log.timestamp)}</span>
+        <span className={`log-badge ${isAvailable ? 'badge-available' : isError ? 'badge-error' : 'badge-unavailable'}`}>
+          {isAvailable ? '빈자리' : isError ? '오류' : '없음'}
+        </span>
+        <span className="log-host">{safeHostname(log.taskUrl)}</span>
+        {isAvailable && slots.length > 0 ? (
+          <button type="button" className="log-expand-btn" onClick={() => setExpanded(v => !v)}>
+            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {slots.length}개 슬롯 보기
+          </button>
+        ) : isError ? (
+          <span className="log-detail-msg">{log.message.replace('오류: ', '')}</span>
+        ) : (
+          <span className="log-detail-msg log-none">빈자리 없음</span>
+        )}
+      </div>
+      {expanded && isAvailable && (
+        <div className="log-slots">
+          {slots.map((s, i) => <div key={i} className="log-slot-line">{s}</div>)}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
-  const [newUrl, setNewUrl] = useState('');
-  const [newRecipient, setNewRecipient] = useState('');
-  const [newInterval, setNewInterval] = useState('*/5 * * * *');
+  const [newIntervalMinutes, setNewIntervalMinutes] = useState(5);
   const [loading, setLoading] = useState(false);
+  const logsRef = useRef<HTMLDivElement>(null);
+  const prevLogCount = useRef(0);
 
-  const API_URL = 'http://localhost:5000/api';
+  const minutesToCron = (minutes: number) =>
+    minutes === 60 ? '0 * * * *' : `*/${minutes} * * * *`;
+
+  const cronToLabel = (cron: string) => {
+    if (cron === '0 * * * *') return '60분마다';
+    const m = cron.match(/^\*\/(\d+)/);
+    return m ? `${m[1]}분마다` : cron;
+  };
+
+  const API_URL = '/api';
 
   const fetchTasks = async () => {
     try {
       const res = await fetch(`${API_URL}/tasks`);
-      const data = await res.json();
-      setTasks(data);
-    } catch (err) {
-      console.error('Failed to fetch tasks', err);
-    }
+      setTasks(await res.json());
+    } catch (err) { console.error(err); }
   };
 
   const fetchLogs = async () => {
     try {
       const res = await fetch(`${API_URL}/tasks/logs`);
-      const data = await res.json();
-      setLogs(data);
-    } catch (err) {
-      console.error('Failed to fetch logs', err);
-    }
+      setLogs(await res.json());
+    } catch (err) { console.error(err); }
   };
 
   useEffect(() => {
     fetchTasks();
     fetchLogs();
-    const timer = setInterval(() => {
-      fetchTasks();
-      fetchLogs();
-    }, 10000);
+    const timer = setInterval(() => { fetchTasks(); fetchLogs(); }, 10000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (logs.length > prevLogCount.current && logsRef.current) {
+      logsRef.current.scrollTop = 0;
+    }
+    prevLogCount.current = logs.length;
+  }, [logs.length]);
 
   const addTask = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await fetch(`${API_URL}/tasks`, {
+      const res = await fetch(`${API_URL}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: newUrl, recipient: newRecipient, interval: newInterval }),
+        body: JSON.stringify({ interval: minutesToCron(newIntervalMinutes) }),
       });
-      setNewUrl('');
-      setNewRecipient('');
-      fetchTasks();
-    } catch (err) {
-      console.error('Failed to add task', err);
-    } finally {
-      setLoading(false);
-    }
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('POST /tasks failed', res.status, text);
+        return;
+      }
+      const newTask = await res.json();
+      setTasks(prev => [newTask, ...prev]);
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   };
 
   const deleteTask = async (id: number) => {
+    setTasks(prev => prev.filter(t => t.id !== id));
     try {
-      await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
-      fetchTasks();
+      const res = await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        console.error('DELETE failed', res.status);
+        await fetchTasks();
+      }
     } catch (err) {
-      console.error('Failed to delete task', err);
+      console.error(err);
+      await fetchTasks();
     }
   };
+
+  const availableCount = logs.filter(l => l.status === 'AVAILABLE').length;
 
   return (
     <div className="container">
       <header>
         <h1><Bell className="icon-header" /> Reservation Monitor</h1>
-        <p>Periodically checks URLs and notifies via SMS when available.</p>
+        <p>예약 빈자리를 주기적으로 확인하고 텔레그램으로 알려드립니다.</p>
       </header>
 
       <main>
         <section className="task-form-card">
-          <h2>Add New Monitor</h2>
+          <h2>모니터 추가</h2>
           <form onSubmit={addTask}>
             <div className="form-group">
-              <label>Target URL</label>
-              <input 
-                type="url" 
-                value={newUrl} 
-                onChange={(e) => setNewUrl(e.target.value)} 
-                placeholder="https://www.applyto.kr/..." 
-                required 
-              />
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Recipient Number</label>
-                <input 
-                  type="tel" 
-                  value={newRecipient} 
-                  onChange={(e) => setNewRecipient(e.target.value)} 
-                  placeholder="01012345678" 
-                  required 
-                />
-              </div>
-              <div className="form-group">
-                <label>Interval (Cron)</label>
-                <input 
-                  type="text" 
-                  value={newInterval} 
-                  onChange={(e) => setNewInterval(e.target.value)} 
-                  placeholder="*/5 * * * *" 
-                />
-              </div>
+                <label>확인 주기</label>
+                <div className="interval-input-row">
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={newIntervalMinutes}
+                    onChange={(e) => setNewIntervalMinutes(Number(e.target.value))}
+                    title="확인 주기 (분)"
+                  />
+                  <span className="interval-unit">분마다</span>
+                </div>
+                <div className="interval-presets">
+                  {[1, 3, 5, 10, 30].map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      className={`preset-btn ${newIntervalMinutes === m ? 'active' : ''}`}
+                      onClick={() => setNewIntervalMinutes(m)}
+                    >
+                      {m}분
+                    </button>
+                  ))}
+                </div>
             </div>
             <button type="submit" disabled={loading} className="btn-primary">
-              <Plus size={18} /> {loading ? 'Adding...' : 'Add Task'}
+              <Plus size={18} /> {loading ? '추가 중...' : '모니터 추가'}
             </button>
           </form>
         </section>
 
         <section className="task-list">
-          <h2>Active Monitors</h2>
+          <h2>활성 모니터</h2>
           <div className="grid">
             {tasks.map(task => (
               <div key={task.id} className="task-card">
                 <div className="task-header">
                   <span className={`status-badge ${task.lastStatus === 'AVAILABLE' ? 'available' : 'unavailable'}`}>
-                    {task.lastStatus || 'WAITING'}
+                    {task.lastStatus === 'AVAILABLE' ? '빈자리 있음' : task.lastStatus === 'UNAVAILABLE' ? '빈자리 없음' : '대기 중'}
                   </span>
-                  <button onClick={() => deleteTask(task.id)} className="btn-icon-danger">
+                  <button type="button" aria-label="삭제" onClick={() => deleteTask(task.id)} className="btn-icon-danger">
                     <Trash2 size={16} />
                   </button>
                 </div>
-                <h3>{new URL(task.url).hostname}</h3>
+                <h3>{safeHostname(task.url)}</h3>
                 <p className="task-url">{task.url}</p>
                 <div className="task-footer">
-                  <span><Activity size={14} /> {task.interval}</span>
-                  <span><Bell size={14} /> {task.recipient}</span>
+                  <span><Activity size={14} /> {cronToLabel(task.interval)}</span>
                 </div>
               </div>
             ))}
-            {tasks.length === 0 && <p className="empty-msg">No active monitors. Add one above!</p>}
+            {tasks.length === 0 && <p className="empty-msg">등록된 모니터가 없습니다. 위에서 추가해주세요.</p>}
           </div>
         </section>
 
         <section className="logs-section">
-          <h2>Recent Activity</h2>
-          <div className="logs-container">
-            {logs.map(log => (
-              <div key={log.id} className="log-entry">
-                <span className="log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                <span className={`log-status ${log.status.toLowerCase()}`}>{log.status}</span>
-                <span className="log-msg">{log.message}</span>
-              </div>
-            ))}
-            {logs.length === 0 && <p className="empty-msg">No logs yet.</p>}
+          <div className="logs-header">
+            <h2>확인 내역</h2>
+            <div className="logs-summary">
+              <span className="summary-total">총 {logs.length}회 확인</span>
+              {availableCount > 0 && (
+                <span className="summary-available">빈자리 발견 {availableCount}회</span>
+              )}
+            </div>
+          </div>
+          <div className="logs-container" ref={logsRef}>
+            {logs.length === 0
+              ? <p className="log-empty">아직 확인 내역이 없습니다. 모니터를 추가하면 자동으로 기록됩니다.</p>
+              : logs.map(log => <LogRow key={log.id} log={log} />)
+            }
           </div>
         </section>
       </main>

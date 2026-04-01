@@ -1,41 +1,42 @@
-// @ts-ignore
-import coolsms from 'coolsms-node-sdk';
+import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 dotenv.config();
 
 export class NotifierService {
-  private client: any;
-  private from: string;
+  private bot: TelegramBot | null = null;
+  private chatId: string;
 
   constructor() {
-    const apiKey = process.env.COOLSMS_API_KEY;
-    const apiSecret = process.env.COOLSMS_API_SECRET;
-    this.from = process.env.COOLSMS_SENDER_NUMBER || '';
+    const token  = process.env.TELEGRAM_BOT_TOKEN;
+    this.chatId  = process.env.TELEGRAM_CHAT_ID || '';
 
-    if (apiKey && apiSecret) {
-      this.client = new coolsms(apiKey, apiSecret);
+    if (token) {
+      this.bot = new TelegramBot(token);
     } else {
-      console.warn('CoolSMS credentials missing. Notification will only log to console.');
+      console.warn('[NOTIFY] TELEGRAM_BOT_TOKEN 없음 — 콘솔 출력만 합니다.');
     }
   }
 
   async sendSMS(to: string, message: string): Promise<{ success: boolean; error?: string }> {
-    console.log(`[NOTIFY] Sending SMS to ${to}: ${message}`);
-    
-    if (!this.client) {
-      return { success: true, error: 'Simulated: Credentials missing' };
+    // to 파라미터는 기존 인터페이스 호환용 (Telegram은 chat_id 사용)
+    const targetChatId = to || this.chatId;
+    console.log(`[NOTIFY] 텔레그램 전송 → chat_id=${targetChatId}\n${message}`);
+
+    if (!this.bot) {
+      console.warn('[NOTIFY] 봇 미설정 — 실제 전송 생략');
+      return { success: false, error: 'TELEGRAM_BOT_TOKEN not configured' };
+    }
+
+    if (!targetChatId) {
+      return { success: false, error: 'TELEGRAM_CHAT_ID not configured' };
     }
 
     try {
-      const response = await this.client.sendOne({
-        to,
-        from: this.from,
-        text: message
-      });
-      console.log('SMS Response:', response);
+      await this.bot.sendMessage(targetChatId, message);
+      console.log('[NOTIFY] 전송 성공');
       return { success: true };
     } catch (error: any) {
-      console.error('CoolSMS error:', error);
+      console.error('[NOTIFY] 전송 실패:', error.message);
       return { success: false, error: error.message };
     }
   }

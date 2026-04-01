@@ -12,11 +12,14 @@ router.get('/', async (req, res) => {
   res.json(allTasks);
 });
 
+const DEFAULT_URL = 'https://w2.applyto.kr/100_CSC/00_info.asp?ukey=A67FDE4&School_id=505355&inning=2019-01&Z19_SN=&part_id=&student_id=&A50_ID=&number_id=&gate_id=';
+
 // Create task
 router.post('/', async (req, res) => {
-  const { url, interval, recipient } = req.body;
+  const { interval } = req.body;
+  const recipient = process.env.TELEGRAM_CHAT_ID || '';
   const result = await db.insert(tasks).values({
-    url,
+    url: DEFAULT_URL,
     interval,
     recipient,
     isActive: true,
@@ -30,14 +33,27 @@ router.post('/', async (req, res) => {
 // Delete task
 router.delete('/:id', async (req, res) => {
   const id = parseInt(req.params.id);
-  await db.delete(tasks).where(eq(tasks.id, id));
   schedulerService.stopTask(id);
+  await db.delete(logs).where(eq(logs.taskId, id));
+  await db.delete(tasks).where(eq(tasks.id, id));
   res.json({ success: true });
 });
 
-// Get logs
+// Get logs (with task URL joined)
 router.get('/logs', async (req, res) => {
-  const recentLogs = await db.select().from(logs).orderBy(desc(logs.timestamp)).limit(50);
+  const recentLogs = await db
+    .select({
+      id: logs.id,
+      taskId: logs.taskId,
+      taskUrl: tasks.url,
+      message: logs.message,
+      status: logs.status,
+      timestamp: logs.timestamp,
+    })
+    .from(logs)
+    .leftJoin(tasks, eq(logs.taskId, tasks.id))
+    .orderBy(desc(logs.timestamp))
+    .limit(100);
   res.json(recentLogs);
 });
 
