@@ -16,6 +16,12 @@ sqlite.exec(`
     is_active  INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS recipients (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id    TEXT    NOT NULL UNIQUE,
+    label      TEXT,
+    created_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS logs (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id    INTEGER REFERENCES tasks(id),

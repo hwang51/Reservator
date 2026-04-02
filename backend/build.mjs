@@ -23,8 +23,10 @@ async function main() {
   // 기존 파일 보존 (빌드 후 복원)
   const releaseEnv   = path.join(release, '.env');
   const releaseGuide = path.join(release, '시작하기.txt');
+  const releaseDb    = path.join(release, 'data.db');
   const savedEnv     = fs.existsSync(releaseEnv)   ? fs.readFileSync(releaseEnv,   'utf8') : null;
   const savedGuide   = fs.existsSync(releaseGuide) ? fs.readFileSync(releaseGuide, 'utf8') : null;
+  const savedDb      = fs.existsSync(releaseDb)    ? fs.readFileSync(releaseDb)            : null;
 
   fs.rmSync(dist,    { recursive: true, force: true });
   fs.rmSync(release, { recursive: true, force: true });
@@ -105,6 +107,12 @@ async function main() {
   if (savedGuide !== null) {
     fs.writeFileSync(releaseGuide, savedGuide, 'utf8');
     console.log('   → release/시작하기.txt 복원');
+  }
+
+  // data.db 복원
+  if (savedDb !== null) {
+    fs.writeFileSync(releaseDb, savedDb);
+    console.log('   → release/data.db 복원');
   }
 
   // ── 완료 ────────────────────────────────────────────────────────────────────

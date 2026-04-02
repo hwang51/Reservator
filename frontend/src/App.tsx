@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, Trash2, Plus, Activity, ChevronDown, ChevronUp } from 'lucide-react';
+import { Bell, Trash2, Plus, Activity, ChevronDown, ChevronUp, Send, UserPlus, X } from 'lucide-react';
 import './App.css';
 
 interface Task {
@@ -9,6 +9,13 @@ interface Task {
   recipient: string;
   lastStatus: string | null;
   isActive: boolean;
+  createdAt: string;
+}
+
+interface Recipient {
+  id: number;
+  chatId: string;
+  label: string | null;
   createdAt: string;
 }
 
@@ -76,6 +83,9 @@ function LogRow({ log }: { log: Log }) {
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [newChatId, setNewChatId] = useState('');
+  const [newLabel, setNewLabel] = useState('');
   const [newIntervalMinutes, setNewIntervalMinutes] = useState(5);
   const [loading, setLoading] = useState(false);
   const logsRef = useRef<HTMLDivElement>(null);
@@ -106,9 +116,47 @@ function App() {
     } catch (err) { console.error(err); }
   };
 
+  const fetchRecipients = async () => {
+    try {
+      const res = await fetch(`${API_URL}/recipients`);
+      setRecipients(await res.json());
+    } catch (err) { console.error(err); }
+  };
+
+  const addRecipient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChatId.trim()) return;
+    try {
+      const res = await fetch(`${API_URL}/recipients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: newChatId.trim(), label: newLabel.trim() || null }),
+      });
+      if (res.ok) {
+        setNewChatId('');
+        setNewLabel('');
+        await fetchRecipients();
+      } else {
+        const data = await res.json();
+        alert(data.error || '추가 실패');
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const deleteRecipient = async (id: number) => {
+    setRecipients(prev => prev.filter(r => r.id !== id));
+    try {
+      await fetch(`${API_URL}/recipients/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error(err);
+      await fetchRecipients();
+    }
+  };
+
   useEffect(() => {
     fetchTasks();
     fetchLogs();
+    fetchRecipients();
     const timer = setInterval(() => { fetchTasks(); fetchLogs(); }, 10000);
     return () => clearInterval(timer);
   }, []);
@@ -164,6 +212,41 @@ function App() {
       </header>
 
       <main>
+        <section className="task-form-card">
+          <h2><Send size={18} /> 알림 수신자</h2>
+          <div className="recipients-list">
+            {recipients.map(r => (
+              <div key={r.id} className="recipient-row">
+                <span className="recipient-chip">{r.chatId}</span>
+                {r.label && <span className="recipient-label-text">{r.label}</span>}
+                <button type="button" aria-label="삭제" className="btn-icon-danger recipient-delete" onClick={() => deleteRecipient(r.id)}>
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+            {recipients.length === 0 && <p className="empty-msg-sm">등록된 수신자가 없습니다.</p>}
+          </div>
+          <form onSubmit={addRecipient} className="recipient-form">
+            <input
+              type="text"
+              placeholder="Chat ID"
+              value={newChatId}
+              onChange={e => setNewChatId(e.target.value)}
+              className="recipient-input"
+            />
+            <input
+              type="text"
+              placeholder="이름 (선택)"
+              value={newLabel}
+              onChange={e => setNewLabel(e.target.value)}
+              className="recipient-input recipient-input-label"
+            />
+            <button type="submit" className="btn-primary btn-sm">
+              <UserPlus size={16} /> 추가
+            </button>
+          </form>
+        </section>
+
         <section className="task-form-card">
           <h2>모니터 추가</h2>
           <form onSubmit={addTask}>

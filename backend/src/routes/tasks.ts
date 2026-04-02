@@ -17,7 +17,7 @@ const DEFAULT_URL = 'https://w2.applyto.kr/100_CSC/00_info.asp?ukey=A67FDE4&Scho
 // Create task
 router.post('/', async (req, res) => {
   const { interval } = req.body;
-  const recipient = process.env.TELEGRAM_CHAT_ID || '';
+  const recipient = process.env.TELEGRAM_CHAT_ID || ''; // 쉼표 구분 다중 chat_id 지원
   const result = await db.insert(tasks).values({
     url: DEFAULT_URL,
     interval,

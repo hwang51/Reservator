@@ -6,7 +6,10 @@ import fs from 'fs';
 import { exec } from 'child_process';
 import { fileURLToPath } from 'url';
 import taskRoutes from './routes/tasks.js';
+import recipientRoutes from './routes/recipients.js';
 import { schedulerService } from './services/scheduler.js';
+import { db } from './db/index.js';
+import { recipients } from './db/schema.js';
 
 dotenv.config();
 
@@ -40,7 +43,27 @@ app.use(express.json());
 
 // API routes
 app.use('/api/tasks', taskRoutes);
+app.use('/api/recipients', recipientRoutes);
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+// Seed recipients from .env on first run
+(async () => {
+  const existing = await db.select().from(recipients);
+  if (existing.length === 0) {
+    const envIds = (process.env.TELEGRAM_CHAT_ID || '')
+      .split(',')
+      .map(id => id.trim())
+      .filter(id => id !== '');
+    for (const chatId of envIds) {
+      try {
+        await db.insert(recipients).values({ chatId });
+      } catch { /* duplicate, skip */ }
+    }
+    if (envIds.length > 0) {
+      console.log(`[SEED] .env에서 ${envIds.length}개 수신자 등록`);
+    }
+  }
+})();
 
 // 정적 파일 서빙
 const frontendDist = getFrontendDist();
